@@ -1,77 +1,78 @@
-var profiler = require('v8-profiler');
-var io = require('socket.io').listen(3000);
-var exec = require('child_process').exec; 
+var program = require('commander');
+var io = require('socket.io');
 
-io.configure(function() {
-  io.set('log level', 1);
+function parseIntNoRadix(str, radix) {
+    return parseInt(str);
+}
 
-  var transport = process.argv.length >= 2 ? process.argv[2] : null;
-  if (transport) {
-    io.set('transports', [transport]);
-  }
-});
+program
+    .version('0.0.2')
+    .usage('[options]')
+    .option('-l, --loginterval <n>', 'Logging interval in seconds [2]', parseIntNoRadix, 2)
+    .option('-p, --port <n>', 'Server port [3000]', parseIntNoRadix, 3000)
+    .parse(process.argv);
 
-// command to read process consumed memory and cpu time
-var getCpuCommand = "ps -p " + process.pid + " -u | grep " + process.pid;
+var server = io.listen(program.port);
 
 var users = 0;
 var countReceived = 0;
 var countSended = 0;
+var connecting = 0;
+var disconnecting = 0;
 
 function roundNumber(num, precision) {
   return parseFloat(Math.round(num * Math.pow(10, precision)) / Math.pow(10, precision));
 }
 
+/**
+ * Logging
+ */
 setInterval(function() {
-  var auxReceived = roundNumber(countReceived / users, 1)
-  var msuReceived = (users > 0 ? auxReceived : 0);
+    var auxReceived = roundNumber(countReceived / users / program.loginterval, 1)
+    var msuReceived = (users > 0 ? auxReceived : 0);
 
-  var auxSended = roundNumber(countSended / users, 1)
-  var msuSended = (users > 0 ? auxSended : 0);
-
-  // call a system command (ps) to get current process resources utilization
-  var child = exec(getCpuCommand, function(error, stdout, stderr) {
-    var s = stdout.split(/\s+/);
-    var cpu = s[2];
-    var memory = s[3];
+    var auxSended = roundNumber(countSended / users / program.loginterval, 1)
+    var msuSended = (users > 0 ? auxSended : 0);
 
     var l = [
-      'U: ' + users,
-      'MR/S: ' + countReceived,
-      'MS/S: ' + countSended,
-      'MR/S/U: ' + msuReceived,
-      'MS/S/U: ' + msuSended,
-      'CPU: ' + cpu,
-      'Mem: ' + memory
+        'usr: ' + users + ' (+' + connecting + '/-' + disconnecting + ')',
+        'recv/sec: ' + countReceived,
+        'sent/sec: ' + countSended,
+        'recv/sec/usr: ' + msuReceived,
+        'sent/sec/usr: ' + msuSended
     ];
 
     console.log(l.join(',\t'));
     countReceived = 0;
     countSended = 0;
-  });
+    connecting = 0;
+    disconnecting = 0;
 
-}, 1000);
+}, program.loginterval*1000);
 
-io.sockets.on('connection', function(socket) {
+/**
+ * Counting connections and ping/pong messages
+ */
+server.sockets.on('connection', function(socket) {
 
-  users++;
+    users++;
+    connecting++;
 
-  socket.on('message', function(message) {
-    socket.send(message);
-    countReceived++;
-    countSended++;
-  });
+    socket.on('message', function(message) {
+        socket.send(message);
+        countReceived++;
+        countSended++;
+    });
 
-  socket.on('broadcast', function(message) {
-    countReceived++;
+    socket.on('broadcast', function(message) {
+        countReceived++;
+        server.sockets.emit('broadcast', message);
+        countSended += users;
+        socket.emit('broadcastOk');
+    });
 
-    io.sockets.emit('broadcast', message);
-    countSended += users;
-
-    socket.emit('broadcastOk');
-  });
-
-  socket.on('disconnect', function() {
-    users--;
-  })
+    socket.on('disconnect', function() {
+        users--;
+        disconnecting++;
+    });
 });

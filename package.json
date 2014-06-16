@@ -1,14 +1,10 @@
 {
     "name": "socket.io-benchmark"
-  , "version": "0.0.1"
+  , "version": "0.0.2"
   , "private": true
   , "dependencies": {
-      "v8-profiler": "latest"
+      "commander": "latest"
     , "socket.io": "latest"
     , "socket.io-client": "latest"  
   }
-  , "devDependencies": {
-  }
-  , "engine": "node >= 0.4.11"
-  
 }
